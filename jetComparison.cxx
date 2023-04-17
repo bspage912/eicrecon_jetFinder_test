@@ -45,15 +45,14 @@ int main(int argc, char* argv[]) {
   TTreeReaderArray<float> recoMomZ = {tree_reader, "ReconstructedJets.momentum.z"};
   TTreeReaderArray<float> recoM = {tree_reader, "ReconstructedJets.mass"};
 
-  /*
-  TTreeReaderArray<int> recoType = {tree_reader, "GeneratedJets.type"};
-  TTreeReaderArray<float> recoNRG = {tree_reader, "GeneratedJets.energy"};
-  TTreeReaderArray<int> recoPDG = {tree_reader, "GeneratedJets.PDG"};
-  TTreeReaderArray<float> recoMomX = {tree_reader, "GeneratedJets.momentum.x"};
-  TTreeReaderArray<float> recoMomY = {tree_reader, "GeneratedJets.momentum.y"};
-  TTreeReaderArray<float> recoMomZ = {tree_reader, "GeneratedJets.momentum.z"};
-  TTreeReaderArray<float> recoM = {tree_reader, "GeneratedJets.mass"};
-  */
+  // Generated Jets
+  TTreeReaderArray<int> genType = {tree_reader, "GeneratedJets.type"};
+  TTreeReaderArray<float> genNRG = {tree_reader, "GeneratedJets.energy"};
+  TTreeReaderArray<int> genPDG = {tree_reader, "GeneratedJets.PDG"};
+  TTreeReaderArray<float> genMomX = {tree_reader, "GeneratedJets.momentum.x"};
+  TTreeReaderArray<float> genMomY = {tree_reader, "GeneratedJets.momentum.y"};
+  TTreeReaderArray<float> genMomZ = {tree_reader, "GeneratedJets.momentum.z"};
+  TTreeReaderArray<float> genM = {tree_reader, "GeneratedJets.mass"};
   
   // MC
   TTreeReaderArray<int> mcGenStat = {tree_reader, "MCParticles.generatorStatus"};
@@ -86,6 +85,21 @@ int main(int argc, char* argv[]) {
 
   TH2D *recoJetEvsEtaBadHist = new TH2D("recoJetEvsEtaBad","",100,-5.,5.,300,0.,300.);
   TH2D *recoJetPhiVsEtaBadHist = new TH2D("recoJetPhiVsEtaBad","",100,-5.,5.,100,-TMath::Pi(),TMath::Pi());
+
+  // Internal Consistency Checks and Distributions (Generated Jets)
+  TH1D *numGenJetsEventHist = new TH1D("numGenJetsEvent","",20,0.,20.);
+  TH2D *genJetEvsEtaHist = new TH2D("genJetEvsEta","",100,-5.,5.,300,0.,300.);
+  TH2D *genJetPhiVsEtaHist = new TH2D("genJetPhiVsEta","",100,-5.,5.,100,-TMath::Pi(),TMath::Pi());
+
+  TH1D *numGenJetPartsHist = new TH1D("numGenJetParts","",20,0.,20.);
+  TH2D *genJetPartEvsEtaHist = new TH2D("genJetPartEvsEta","",100,-5.,5.,300,0.,300.);
+  TH2D *genJetPartPhiVsEtaHist = new TH2D("genJetPartPhiVsEta","",100,-5.,5.,100,-TMath::Pi(),TMath::Pi());
+
+  TH2D *genJetEvsPartESumHist = new TH2D("genJetEvsPartESum","",3000,0.,300.,3000,0.,300.);
+  TH1D *genJetEDiffHist = new TH1D("genJetEDiff","",500,-10.,10.);
+
+  TH2D *genJetEvsEtaBadHist = new TH2D("genJetEvsEtaBad","",100,-5.,5.,300,0.,300.);
+  TH2D *genJetPhiVsEtaBadHist = new TH2D("genJetPhiVsEtaBad","",100,-5.,5.,100,-TMath::Pi(),TMath::Pi());
 
   // Comparison to Local Jets
   TH2D *numLocalVsRecoJetsHist = new TH2D("numLocalVsRecoJets","",20,0.,20.,20,0.,20.);
@@ -130,6 +144,7 @@ int main(int argc, char* argv[]) {
     vector<PseudoJet> particles;
     vector<PseudoJet> particlesGen;
 
+    // Look at ReconstructedJets
     int numJets = 0;
     cout << "Event " << NEVENTS << " " << recoType.GetSize() << endl;
     for(unsigned int i=0; i<recoType.GetSize(); i++) // Loop over Entries in ReconstructedJet
@@ -182,6 +197,51 @@ int main(int argc, char* argv[]) {
     cout << endl;
 
     numRecoJetsEventHist->Fill(numJets);
+
+
+    // Look at Generated Jets
+    int numGenJets = 0;
+    for(unsigned int i=0; i<genType.GetSize(); i++) // Loop over Entries in GeneratedJet
+      {
+	int numParts = 0;
+	TLorentzVector totVec;
+	if(genType[i] == 0) // Select Jets
+	  {
+	    TVector3 jetMom(genMomX[i],genMomY[i],genMomZ[i]);
+
+	    genJetEvsEtaHist->Fill(jetMom.PseudoRapidity(),genNRG[i]);
+	    genJetPhiVsEtaHist->Fill(jetMom.PseudoRapidity(),jetMom.Phi());
+
+	    numGenJets++;
+
+	    for(unsigned int j=0; j<genType.GetSize(); j++) // For each jet, loop through all entries again
+	      {
+		if((genType[j] == 1) && (genPDG[j] == genPDG[i])) // Select particles associated with jet
+		  {
+		    TLorentzVector local;
+		    local.SetPxPyPzE(genMomX[j],genMomY[j],genMomZ[j],genNRG[j]);
+		    totVec += local;
+
+		    genJetPartEvsEtaHist->Fill(local.PseudoRapidity(),genNRG[j]);
+		    genJetPartPhiVsEtaHist->Fill(local.PseudoRapidity(),local.Phi());
+
+		    numParts++;
+		  }
+	      }
+
+	    numGenJetPartsHist->Fill(numParts);
+	    genJetEvsPartESumHist->Fill(genNRG[i],totVec.E());
+	    genJetEDiffHist->Fill(genNRG[i]-totVec.E());
+
+	    if(TMath::Abs(totVec.E() - genNRG[i]) > 0.00001)
+	      {
+		genJetEvsEtaBadHist->Fill(jetMom.PseudoRapidity(),genNRG[i]);
+		genJetPhiVsEtaBadHist->Fill(jetMom.PseudoRapidity(),jetMom.Phi());
+	      }
+	  }
+      }
+
+    numGenJetsEventHist->Fill(numGenJets);
 
 
     // Print Reconstructed and Generated Particle Information
