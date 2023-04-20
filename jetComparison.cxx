@@ -114,6 +114,14 @@ int main(int argc, char* argv[]) {
 
   TH1D *localPartCombDRHist = new TH1D("localPartCombDR","",1000,0.,10.);
 
+  TH2D *numLocalVsGenJetsHist = new TH2D("numLocalVsGenJets","",20,0.,20.,20,0.,20.);
+  TH2D *numLocalVsGenJetPartsHist = new TH2D("numLocalVsGenJetParts","",50,0.,50.,50,0.,50.);
+
+  TH2D *localVsGenJetPtHist = new TH2D("localVsGenJetPt","",500,0.,50.,500,0.,50.);
+  TH2D *localVsGenJetEHist = new TH2D("localVsGenJetE","",3000,0.,300.,3000,0.,300.);
+  TH2D *localVsGenJetEtaHist = new TH2D("localVsGenJetEta","",1000,-5.,5.,1000,-5.,5.);
+  TH2D *localVsGenJetPhiHist = new TH2D("localVsGenJetPhi","",500,-TMath::Pi(),TMath::Pi(),500,-TMath::Pi(),TMath::Pi());
+
   // Comparison between Local Generated and Reco Jets
   TH1D *localGenRecoDetlaRHist = new TH1D("localGenRecoDetlaR","",500,0.,5.);
 
@@ -135,6 +143,7 @@ int main(int argc, char* argv[]) {
   int NEVENTS = 0;
   int TOTPARTS = 0;
   int MISMATCHJETE = 0;
+  int MISMATCHGENJETE = 0;
   vector<int> dupTrackEvents;
   while(tree_reader.Next()) {
 
@@ -142,6 +151,7 @@ int main(int argc, char* argv[]) {
 
     // Reconstructed Particles for Clustering
     vector<PseudoJet> particles;
+    vector<PseudoJet> particlesGenLoc;
     vector<PseudoJet> particlesGen;
 
     // Look at ReconstructedJets
@@ -254,6 +264,7 @@ int main(int argc, char* argv[]) {
 	
 	cout << "Reco Particle " << i << " Energy = " << E << " Eta = " << partMom.PseudoRapidity() << " Phi = " << partMom.Phi() << " Mass = " << recoPartM[i] << " Pt = " << partMom.Perp() << endl;
 
+	// Fill Local Jet Using Same Cuts as ReconstructedJet
 	if(partMom.Perp() > 0.2 && partMom.Perp() < 100.0)
 	  {
 	    particles.push_back( PseudoJet(partMom.Px(),partMom.Py(),partMom.Pz(),E) );
@@ -270,6 +281,13 @@ int main(int argc, char* argv[]) {
 	    
 	    cout << "Particle " << i << " Energy = " << E << " Eta = " << partMom.PseudoRapidity() << " Phi = " << partMom.Phi() << " PDG = " << pdg[i] << endl;
 
+	    // MC Jet Particles for GeneratedJets / Local Comparison
+	    if(partMom.Perp() > 0.2 && partMom.Perp() < 100.0)
+	      {
+		particlesGenLoc.push_back( PseudoJet(partMom.Px(),partMom.Py(),partMom.Pz(),E) );
+	      }
+
+	    // MC Jet Particles for Reco/Truth Comparison: No min pT cut and only Charged Particles
 	    if(id==11 || id==13 || id==211 || id==321 || id==2212)
 	      {
 		particlesGen.push_back( PseudoJet(partMom.Px(),partMom.Py(),partMom.Pz(),E) );
@@ -285,17 +303,20 @@ int main(int argc, char* argv[]) {
 
     // Cluster in Beam Frame
     ClusterSequence cs_akt_reco(particles, jet_def_akt);
+    ClusterSequence cs_akt_gen_loc(particlesGenLoc, jet_def_akt);
     ClusterSequence cs_akt_gen(particlesGen, jet_def_akt);
 
     // Set Min Jet Pt
     //double ptmin = 1.0;
 
     // Get Jets
-    vector<PseudoJet> jets_akt_reco = sorted_by_pt(cs_akt_reco.inclusive_jets());
-    vector<PseudoJet> jets_akt_gen = sorted_by_pt(cs_akt_gen.inclusive_jets());
+    vector<PseudoJet> jets_akt_reco = sorted_by_pt(cs_akt_reco.inclusive_jets(1.0));
+    vector<PseudoJet> jets_akt_gen_loc = sorted_by_pt(cs_akt_gen_loc.inclusive_jets(1.0));
+    vector<PseudoJet> jets_akt_gen = sorted_by_pt(cs_akt_gen.inclusive_jets(1.0));
 
     // Compare to Jets from EICrecon
     numLocalVsRecoJetsHist->Fill(numJets,jets_akt_reco.size());
+    numLocalVsGenJetsHist->Fill(numGenJets,jets_akt_gen_loc.size());
 
     // Loop Over Reco Jets
     for(unsigned int i=0; i<recoType.GetSize(); i++)
@@ -438,15 +459,83 @@ int main(int argc, char* argv[]) {
 	  }
       }
 
+
+    // Loop Over Gen Jets
+    for(unsigned int i=0; i<genType.GetSize(); i++)
+      {
+	int numParts = 0;
+	TLorentzVector totVec;
+	if(genType[i] == 0) // Select Jets
+	  {
+	    TVector3 jetMom(genMomX[i],genMomY[i],genMomZ[i]);
+
+	    for(unsigned int j=0; j<genType.GetSize(); j++) // For each jet, loop through all entries again
+	      {
+		if((genType[j] == 1) && (genPDG[j] == genPDG[i])) // Select particles associated with jet
+		  {
+		    TLorentzVector local;
+		    local.SetPxPyPzE(genMomX[j],genMomY[j],genMomZ[j],genNRG[j]);
+		    totVec += local;
+		    
+		    numParts++;
+		  }
+	      }
+
+	    // Match Gen Jet to Local Jet
+	    double minDist = 10000.0;
+	    int matchIndex = -1;
+	    for(unsigned int jn=0; jn<jets_akt_gen_loc.size(); jn++)
+	      {
+		double dEta = jetMom.PseudoRapidity() - jets_akt_gen_loc[jn].eta();
+		double dPhi = TVector2::Phi_mpi_pi(jetMom.Phi() - jets_akt_gen_loc[jn].phi());
+		double dR = std::sqrt(dEta*dEta + dPhi*dPhi);
+
+		if(dR < minDist)
+		  {
+		    minDist = dR;
+		    matchIndex = jn;
+		  }
+	      }
+
+	    // Look at Matched Gen / Local jets
+	    if(matchIndex > -1)
+	      {
+		localVsGenJetPtHist->Fill(jetMom.Perp(),jets_akt_gen_loc[matchIndex].pt());
+		localVsGenJetEHist->Fill(genNRG[i],jets_akt_gen_loc[matchIndex].e());
+		localVsGenJetEtaHist->Fill(jetMom.PseudoRapidity(),jets_akt_gen_loc[matchIndex].eta());
+		localVsGenJetPhiHist->Fill(TVector2::Phi_mpi_pi(jetMom.Phi()),TVector2::Phi_mpi_pi(jets_akt_gen_loc[matchIndex].phi()));
+
+		// Compare Constituents
+		vector<PseudoJet> cons = jets_akt_gen_loc[matchIndex].constituents();
+
+		int numLocalJetPart = 0;
+		for(unsigned int jc=0; jc<cons.size(); jc++)
+		  {
+		    if(cons[jc].pt() > 0.2 && cons[jc].pt() < 100.0)
+		      numLocalJetPart++;
+		  }
+
+		numLocalVsGenJetPartsHist->Fill(numParts,numLocalJetPart);
+
+		if(std::abs(genNRG[i] - jets_akt_gen_loc[matchIndex].e()) > 10e-6) 
+		  {
+		    //cout << "Event " << NEVENTS << " Jet " << i << " has Mismatched Energy = " << recoNRG[i] - jets_akt_all_beam[matchIndex].e() << endl;
+		    MISMATCHGENJETE++;
+		  }
+	      }
+	  }
+      }
+
     NEVENTS++;
   } // End Loop Over Events
 
   cout << "Total Particles = " << TOTPARTS << endl;
   cout << "Total Reco/Local Jet Pairs with Mismatched Energy = " << MISMATCHJETE << endl;
-  cout << "Events with Duplicate Tracks" << endl;
+  cout << "Total Gen/Local Jet Pairs with Mismatched Energy = " << MISMATCHGENJETE << endl;
+  //cout << "Events with Duplicate Tracks" << endl;
   for(unsigned int i=0; i<dupTrackEvents.size(); i++)
     {
-      cout << dupTrackEvents[i] << endl;
+      //cout << dupTrackEvents[i] << endl;
     }
 
   //mcEta->Write();
