@@ -513,6 +513,19 @@ int main(int argc, char* argv[]) {
 		  {
 		    if(cons[jc].pt() > 0.2 && cons[jc].pt() < 100.0)
 		      numLocalJetPart++;
+		    /*
+		    if(jc < cons.size() -1)
+		      {
+			for(unsigned int jc1 = jc+1; jc1<cons.size(); jc1++)
+			  {
+			    double dEta = cons[jc].eta() - cons[jc1].eta();
+			    double dPhi = TVector2::Phi_mpi_pi(cons[jc].phi() - cons[jc1].phi());
+			    double dR = std::sqrt(dEta*dEta + dPhi*dPhi);
+
+			    localGenPartCombDRHist->Fill(dR);
+			  }
+		      }
+		    */
 		  }
 
 		numLocalVsGenJetPartsHist->Fill(numParts,numLocalJetPart);
